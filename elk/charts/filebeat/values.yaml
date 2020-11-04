@@ -1,0 +1,148 @@
+---
+# Allows you to add any config files in /usr/share/filebeat
+# such as filebeat.yml
+filebeatConfig:
+  filebeat.yml: |
+    filebeat.modules:
+    - module: mysql
+      error:
+        enabled: true
+        var.paths: ["/var/log/mysql/error.log"]
+      slowlog:
+        enabled: true
+        var.paths: ["/var/log/mysql/slow.log"]
+    filebeat.inputs:
+    - type: container
+      paths:
+        - /var/log/containers/*.log
+      processors:
+        - add_docker_metadata:
+            host: "unix:///var/run/docker.sock"
+        - add_kubernetes_metadata:
+            in_cluster: true
+            host: "${NODE_NAME}"
+            matchers:
+              - logs_path:
+                  logs_path: "/var/log/containers/"
+        - add_cloud_metadata: ~
+    - type: docker
+      containers.ids:
+      - "*"
+      processors:
+        - add_kubernetes_metadata:
+            in_cluster: true
+            host: "${NODE_NAME}"
+        - add_docker_metadata:
+            host: "unix:///var/run/docker.sock"
+        - add_cloud_metadata: ~
+    - type: log
+      paths:
+        - /var/apps/log/*/*.log
+      fields_under_root: true
+    processors:
+      - add_kubernetes_metadata:
+          in_cluster: true
+          host: "${NODE_NAME}"
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+      - add_cloud_metadata: ~
+
+    output.elasticsearch:
+      hosts: "elasticsearch-master:9200"
+    setup.kibana.host: 'elk-kibana:5601'
+    setup.kibana.enabled: true
+    setup.dashboards.enabled: true
+
+# Extra environment variables to append to the DaemonSet pod spec.
+# This will be appended to the current 'env:' key. You can use any of the kubernetes env
+# syntax here
+extraEnvs: []
+#  - name: MY_ENVIRONMENT_VAR
+#    value: the_value_goes_here
+
+extraVolumeMounts: ""
+
+extraVolumes: ""
+
+# Root directory where Filebeat will write data to in order to persist registry data across pod restarts (file position and other metadata).
+hostPathRoot: /var/lib
+
+image: "docker.elastic.co/beats/filebeat"
+imageTag: "7.4.2"
+imagePullPolicy: "IfNotPresent"
+imagePullSecrets: []
+
+livenessProbe:
+  failureThreshold: 3
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 15
+
+readinessProbe:
+  failureThreshold: 3
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+# Whether this chart should self-manage its service account, role, and associated role binding.
+managedServiceAccount: true
+
+# additionals labels
+labels: {}
+
+podAnnotations: {}
+  # iam.amazonaws.com/role: es-cluster
+
+# Various pod security context settings. Bear in mind that many of these have an impact on Filebeat functioning properly.
+#
+# - User that the container will execute as. Typically necessary to run as root (0) in order to properly collect host container logs.
+# - Whether to execute the Filebeat containers as privileged containers. Typically not necessarily unless running within environments such as OpenShift.
+podSecurityContext:
+  runAsUser: 0
+  privileged: true
+  capabilities:
+    add:
+      - IPC_LOCK
+      - SYS_RESOURCE
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_PTRACE
+      - DAC_READ_SEARCH
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "100Mi"
+  limits:
+    cpu: "1000m"
+    memory: "200Mi"
+
+# Custom service account override that the pod will use
+serviceAccount: ""
+
+# A list of secrets and their paths to mount inside the pod
+# This is useful for mounting certificates for security other sensitive values
+secretMounts: []
+#  - name: filebeat-certificates
+#    secretName: filebeat-certificates
+#    path: /usr/share/filebeat/certs
+
+# How long to wait for Filebeat pods to stop gracefully
+terminationGracePeriod: 30
+
+tolerations: []
+
+nodeSelector: {}
+
+affinity: {}
+
+# This is the PriorityClass settings as defined in
+# https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/#priorityclass
+priorityClassName: ""
+
+updateStrategy: RollingUpdate
+
+# Override various naming aspects of this chart
+# Only edit these if you know what you're doing
+nameOverride: ""
+fullnameOverride: ""

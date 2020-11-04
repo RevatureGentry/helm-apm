@@ -1,0 +1,110 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-conf
+data:
+  log.cnf: |-
+    [mysqld]
+    log-error   = /var/log/mysql/error.log
+    slow_query_log = 1
+    slow_query_log_file = /var/log/mysql/slow.log
+    long_query_time = 2
+  initdb.sql: |-
+    CREATE USER 'apm'@'%' IDENTIFIED BY 'password';
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: author-db-pvc
+  labels:
+    app: author
+    tier: data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: author-db-config
+  labels:
+    app: author
+data:
+  MYSQL_DATABASE: "author"
+  MYSQL_USER: "admin"
+  MYSQL_PASSWORD: "password"
+  MYSQL_RANDOM_ROOT_PASSWORD: "true"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: author-mysql
+  labels:
+    app: author
+    tier: data
+spec:
+  serviceName: "mysql"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: author
+      tier: data
+  template:
+    metadata:
+      labels:
+        app: author
+        tier: data
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:5.7
+          envFrom:
+            - configMapRef:
+                name: author-db-config
+          ports:
+            - containerPort: 3306
+              name: author-db-port
+          volumeMounts:
+            - mountPath: /var/lib/mysql
+              name: mysql-persistent-storage
+            - mountPath: /etc/mysql/conf.d/log.cnf
+              name: mysql-logging
+              subPath: log.cnf
+            - name: mysql-init
+              mountPath: /docker-entrypoint-initdb.d/initdb.sql
+              subPath: initdb.sql
+          args:
+            - "--ignore-db-dir=lost+found"
+      volumes:
+        - name: mysql-persistent-storage
+          persistentVolumeClaim:
+            claimName: author-db-pvc
+        - name: mysql-logging
+          configMap:
+            name: db-conf
+            items:
+              - key: log.cnf
+                path: log.cnf
+        - name: mysql-init
+          configMap:
+            name: db-conf
+            items:
+              - key: initdb.sql
+                path: initdb.sql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: author-db-svc
+  labels:
+    app: author
+spec:
+  ports:
+    - port: 3306
+      targetPort: author-db-port
+  selector:
+    app: author

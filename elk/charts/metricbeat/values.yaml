@@ -1,0 +1,286 @@
+---
+# Allows you to add any config files in /usr/share/metricbeat
+# such as metricbeat.yml
+metricbeatConfig:
+  metricbeat.yml: |
+    setup.kibana.host: 'elk-kibana:5601'
+    setup.kibana.enabled: true
+    setup.dashboards.enabled: true
+    system:
+      hostfs: /hostfs
+    metricbeat.modules:
+    - module: kubernetes
+      metricsets:
+        - container
+        - node
+        - pod
+        - system
+        - volume
+      period: 10s
+      host: "${NODE_NAME}"
+      hosts: ["metrics-server.kube-system.svc.cluster.local:10255"]
+      add_metadata: true
+      processors:
+      - add_kubernetes_metadata:
+          host: "${NODE_NAME}"
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+      - add_cloud_metadata: ~
+    - module: system
+      metricsets:
+        - cpu             # CPU usage
+        - load            # CPU load averages
+        - memory          # Memory usage
+        - network         # Network IO
+        - process         # Per process metrics
+        - process_summary # Process summary
+        - uptime          # System Uptime
+        - socket_summary  # Socket summary
+        - core           # Per CPU core usage
+        - diskio         # Disk IO
+        - filesystem     # File system usage for each mountpoint
+        - fsstat         # File system summary metrics
+      enabled: true
+      period: 10s
+
+      cpu.metrics:  [percentages, normalized_percentages, ticks]
+      core.metrics: [percentages, ticks]
+      processes: ['.*']
+      process.include_top_n:
+        by_cpu: 5
+        by_memory: 5
+      processors:
+        - add_docker_metadata:
+            host: "unix:///var/run/docker.sock"
+        - add_kubernetes_metadata:
+            host: "${NODE_NAME}"
+            in_cluster: true
+        - add_cloud_metadata: ~
+    - module: system
+      period: 1m
+      add_metadata: true
+      metricsets:
+        - filesystem
+        - fsstat
+      processors:
+        - add_docker_metadata:
+            host: "unix:///var/run/docker.sock"
+        - add_kubernetes_metadata:
+            host: "${NODE_NAME}"
+            in_cluster: true
+        - add_cloud_metadata: ~
+    - module: kubernetes
+      enabled: true
+      metricsets:
+        - state_node
+        - state_deployment
+        - state_replicaset
+        - state_statefulset
+        - state_pod
+        - state_container
+      period: 10s
+      hosts: ["kube-state-metrics.kube-system.svc.cluster.local:8080"]
+      add_metadata: true
+      processors:
+        - add_docker_metadata:
+            host: "unix:///var/run/docker.sock"
+        - add_kubernetes_metadata:
+            host: "${NODE_NAME}"
+            in_cluster: true
+        - add_cloud_metadata: ~
+    - module: docker
+      metricsets:
+        - "container"
+        - "cpu"
+        - "diskio"
+        - "event"
+        - "healthcheck"
+        - "info"
+        - "image"
+        - "memory"
+        - "network"
+      period: 10s
+      enabled: true
+      hosts: ["unix:///var/run/docker.sock"]
+      processors:
+        - add_docker_metadata:
+            host: "unix:///var/run/docker.sock"
+        - add_kubernetes_metadata:
+            host: "${NODE_NAME}"
+            in_cluster: true
+        - add_cloud_metadata: ~
+    - module: mysql
+      metricsets:
+        - status
+      hosts: ["tcp(author-db-svc.default.svc.cluster.local:3306)/", "tcp(book-db-svc.default.svc.cluster.local:3306)/", "tcp(review-db-svc.default.svc.cluster.local:3306)/"]
+      username: apm
+      password: password
+      processors:
+        - add_docker_metadata:
+            host: "unix:///var/run/docker.sock"
+        - add_kubernetes_metadata:
+            host: "${NODE_NAME}"
+        - add_cloud_metadata: ~
+    output.elasticsearch:
+      hosts: "elasticsearch-master:9200"
+
+  kube-state-metrics-metricbeat.yml: |
+    metricbeat.modules:
+    - module: kubernetes
+      enabled: true
+      metricsets:
+        - state_node
+        - state_deployment
+        - state_replicaset
+        - state_statefulset
+        - state_pod
+        - state_container
+      period: 10s
+      host: "${NODE_NAME}"
+      hosts: ["kube-state-metrics.kube-system.svc.cluster.local:8080"]
+      add_metadata: true
+    output.elasticsearch:
+      hosts: "elasticsearch-master:9200"
+
+# Replicas being used for the kube-state-metrics metricbeat deployment
+
+replicas: 1
+
+# Extra environment variables to append to the DaemonSet pod spec.
+# This will be appended to the current 'env:' key. You can use any of the kubernetes env
+# syntax here
+extraEnvs: []
+#  - name: MY_ENVIRONMENT_VAR
+#    value: the_value_goes_here
+
+extraVolumeMounts: ""
+  # - name: extras
+  #   mountPath: /usr/share/extras
+  #   readOnly: true
+
+extraVolumes: ""
+  # - name: extras
+  #   emptyDir: {}
+
+# Root directory where metricbeat will write data to in order to persist registry data across pod restarts (file position and other metadata).
+hostPathRoot: /var/lib
+
+image: "docker.elastic.co/beats/metricbeat"
+imageTag: "7.4.2"
+imagePullPolicy: "IfNotPresent"
+imagePullSecrets: []
+
+livenessProbe:
+  failureThreshold: 3
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 15
+
+readinessProbe:
+  failureThreshold: 3
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+# additionals labels
+labels: {}
+
+# Whether this chart should self-manage its service account, role, and associated role binding.
+managedServiceAccount: true
+
+clusterRoleRules:
+  - apiGroups:
+    - "extensions"
+    - "apps"
+    - ""
+    resources:
+    - nodes
+    - namespaces
+    - events
+    - pods
+    - nodes/metrics
+    - nodes/stats
+    - deployments
+    - nodes
+    - replicasets
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "extensions" ]
+    resources:
+      - replicasets
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "apps" ]
+    resources:
+      - statefulsets
+      - deployments
+      - replicasets
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/stats
+      - nodes/metrics
+    verbs:
+      - get
+  - nonResourceURLs:
+      - "/metrics"
+    verbs:
+      - get
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - '*'
+
+podAnnotations: {}
+  # iam.amazonaws.com/role: es-cluster
+
+# Various pod security context settings. Bear in mind that many of these have an impact on metricbeat functioning properly.
+#
+# - Filesystem group for the metricbeat user. The official elastic docker images always have an id of 1000.
+# - User that the container will execute as. Typically necessary to run as root (0) in order to properly collect host container logs.
+# - Whether to execute the metricbeat containers as privileged containers. Typically not necessarily unless running within environments such as OpenShift.
+podSecurityContext:
+  runAsUser: 0
+  capabilities:
+    add:
+      - IPC_LOCK
+      - SYS_RESOURCE
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_PTRACE
+      - DAC_READ_SEARCH
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "100Mi"
+  limits:
+    cpu: "1000m"
+    memory: "200Mi"
+
+# Custom service account override that the pod will use
+serviceAccount: ""
+
+# A list of secrets and their paths to mount inside the pod
+# This is useful for mounting certificates for security other sensitive values
+secretMounts: []
+#  - name: metricbeat-certificates
+#    secretName: metricbeat-certificates
+#    path: /usr/share/metricbeat/certs
+
+# How long to wait for metricbeat pods to stop gracefully
+terminationGracePeriod: 30
+
+tolerations: []
+
+nodeSelector: {}
+
+affinity: {}
+
+updateStrategy: RollingUpdate
+
+# Override various naming aspects of this chart
+# Only edit these if you know what you're doing
+nameOverride: ""
+fullnameOverride: ""

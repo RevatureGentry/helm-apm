@@ -1,0 +1,110 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: review-db-conf
+data:
+  log.cnf: |-
+    [mysqld]
+    log-error   = /var/log/mysql/error.log
+    slow_query_log = 1
+    slow_query_log_file = /var/log/mysql/slow.log
+    long_query_time = 2
+  initdb.sql: |-
+    CREATE USER 'apm'@'%' IDENTIFIED BY 'password';
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: review-db-pvc
+  labels:
+    app: review
+    tier: data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: review-db-config
+  labels:
+    app: review
+data:
+  MYSQL_DATABASE: "review"
+  MYSQL_USER: "admin"
+  MYSQL_PASSWORD: "password"
+  MYSQL_RANDOM_ROOT_PASSWORD: "true"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: review-mysql
+  labels:
+    app: review
+    tier: data
+spec:
+  serviceName: "mysql"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review
+      tier: data
+  template:
+    metadata:
+      labels:
+        app: review
+        tier: data
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:5.7
+          envFrom:
+            - configMapRef:
+                name: review-db-config
+          ports:
+            - containerPort: 3306
+              name: review-db-port
+          volumeMounts:
+            - mountPath: /var/lib/mysql
+              name: mysql-persistent-storage
+            - mountPath: /etc/mysql/conf.d/log.cnf
+              name: mysql-logging
+              subPath: log.cnf
+            - name: mysql-init
+              mountPath: /docker-entrypoint-initdb.d/initdb.sql
+              subPath: initdb.sql
+          args:
+            - "--ignore-db-dir=lost+found"
+      volumes:
+        - name: mysql-persistent-storage
+          persistentVolumeClaim:
+            claimName: review-db-pvc
+        - name: mysql-logging
+          configMap:
+            name: review-db-conf
+            items:
+              - key: log.cnf
+                path: log.cnf
+        - name: mysql-init
+          configMap:
+            name: review-db-conf
+            items:
+              - key: initdb.sql
+                path: initdb.sql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-db-svc
+  labels:
+    app: review
+spec:
+  ports:
+    - port: 3306
+      targetPort: review-db-port
+  selector:
+    app: review

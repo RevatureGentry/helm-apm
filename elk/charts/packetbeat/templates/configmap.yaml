@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: packetbeat-config
+  labels:
+    app: es-cluster
+    tier: apm
+data:
+  packetbeat.yml: |
+    setup.dashboards.enabled: true
+    setup.template.enabled: true
+    packetbeat.interfaces.device: any
+    packetbeat.procs.enabled: true
+    packetbeat.protocols:
+    - type: dns
+      ports: [53]
+      include_authorities: true
+      include_additionals: true
+    - type: http
+      ports: [80, 8080, 10000, 10001, 10002]
+    - type: mysql
+      ports: [3306]
+    packetbeat.flows:
+      timeout: 30s
+      period: 10s
+    processors:
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+      - add_kubernetes_metadata:
+          host: "${NODE_NAME}"
+      - add_cloud_metadata: ~
+      - dns:
+          type: reverse
+          fields:
+            source.ip: source.hostname
+            destination.ip: destination.hostname
+
+    output.elasticsearch:
+      hosts: ['elasticsearch-master:9200']
+
+    setup.kibana:
+      enabled: true
+      host: 'elk-kibana:5601'

@@ -1,0 +1,22 @@
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: config-reader-author
+rules:
+  - apiGroups: ["", "extensions", "apps"]
+    resources: ["configmaps", "pods", "services", "endpoints", "secrets"]
+    verbs: ["get", "list", "watch"]
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: namespace-reader-author
+subjects:
+  - kind: ServiceAccount
+    name: author
+    namespace: default
+roleRef:
+  kind: Role
+  name: config-reader-author
+  apiGroup: rbac.authorization.k8s.io
